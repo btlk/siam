@@ -1,0 +1,5 @@
+/venv
+/activate.bat
+/dist
+/build
+/src/siam.egg-info
