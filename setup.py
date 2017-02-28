@@ -2,10 +2,11 @@ from setuptools import setup, find_packages
 
 reqs = [x.strip() for x in open('REQUIREMENTS.txt', 'r').readlines()]
 
+
 setup(
   name='siam',
   version='0.1',
-  packages=find_packages('siam'),
+  packages=['siam'],
   package_dir={'siam': 'src'},
   scripts=[],
 
