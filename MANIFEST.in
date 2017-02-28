@@ -1,2 +1,2 @@
 # Include text files
-include LICENSE.txt CHANGES.txt REQUIREMENTS.txt
+include LICENSE CHANGES.txt REQUIREMENTS.txt
