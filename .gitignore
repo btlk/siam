@@ -4,3 +4,4 @@
 /build
 /src/siam.egg-info
 /siam.egg-info
+__pycache__
