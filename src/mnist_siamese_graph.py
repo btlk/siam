@@ -4,7 +4,7 @@ It follows Hadsell-et-al.'06 [1] by computing the Euclidean distance on the
 output of the shared network and by optimizing the contrastive loss (see paper
 for mode details).
 
-[1] "Dimensionality Reduction by Learning an Invariant Mapping"
+[1] 'Dimensionality Reduction by Learning an Invariant Mapping'
     http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
 
 Gets to 99.5% test accuracy after 20 epochs.
@@ -16,20 +16,31 @@ import numpy as np
 np.random.seed(1337)  # for reproducibility
 
 import random
-from keras.models import Sequential, Model
-from keras.layers import Dense, Dropout, Input, Lambda, Conv2D, MaxPooling2D
-from keras.optimizers import RMSprop
+from keras.models import Sequential, Model, model_from_json
+from keras.layers import Dense, Dropout, Input, Lambda, Conv2D, MaxPooling2D, Flatten
+import keras.optimizers as opts
 from keras import backend as K
 import tensorflow as tf
 import cv2
 import os, sys
+import json
 
 
 TRAIN_DIR = 'D:\Job\misis\svn\siam\testdata\rtsd-r1'
 TRAIN_FILE = 'train.tfrecords'
 VALIDATION_FILE = 'test.tfrecords'
 IMAGE_PIXELS = 48 * 48 * 3
+IMAGE_SHAPE = [48, 48, 3]
+NUM_CLASSES = 31
+num_epochs = 50
+batch_size = 32
+num_train = 9158#22466 #9158
+num_test = #7551 #2935
 
+config = tf.ConfigProto()
+# config.gpu_options.per_process_gpu_memory_fraction = 0.4
+sess = tf.Session(config=config)
+K.set_session(sess)
 
 def _int64_feature(value):
   return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
@@ -40,7 +51,7 @@ def _bytes_feature(value):
 
 
 def convert_to(images, labels, output_path):
-  """Converts a dataset to tfrecords."""
+  '''Converts a dataset to tfrecords.'''
   num_examples = len(images)
 
   output_dir = os.path.split(output_path)[0]
@@ -70,91 +81,67 @@ def convert_to(images, labels, output_path):
 
 
 def read_data(images_dir, labels_file):
-  images_list = os.listdir(images_dir)
-  labels_list = [int(x.strip()) for x in open(labels_file, 'r').readlines()] 
-
-  assert len(images_list) == len(labels_list)
   images_data = []
+  labels_list = [int(x.strip()) for x in open(labels_file, 'r').readlines()]
 
+  images_list = sorted(os.listdir(images_dir))
   for im in images_list:
     with open(os.path.join(images_dir, im), 'rb') as img_stream:
       file_bytes = np.asarray(bytearray(img_stream.read()), dtype=np.uint8)
       img_data_ndarray = cv2.imdecode(file_bytes, cv2.IMREAD_UNCHANGED)
-
       images_data.append(img_data_ndarray)
 
   return images_data, labels_list
 
 
-def read_and_decode(filename_queue):
+def read_data2(images_dir):
+  dirs_list = os.listdir(images_dir)
+
+  images_data = []
+  labels_list = []
+
+  for d in dirs_list:
+    images_list = os.listdir(os.path.join(images_dir, d))
+    for im in images_list:
+      with open(os.path.join(images_dir, d, im), 'rb') as img_stream:
+        file_bytes = np.asarray(bytearray(img_stream.read()), dtype=np.uint8)
+        img_data_ndarray = cv2.imdecode(file_bytes, cv2.IMREAD_UNCHANGED)
+
+        images_data.append(img_data_ndarray)
+        labels_list.append(int(d))
+
+  return images_data, labels_list
+
+
+def read_and_decode(filename_queue, num_examples):
   reader = tf.TFRecordReader()
   _, serialized_example = reader.read(filename_queue)
-  features = tf.parse_single_example(
-      serialized_example,
-      # Defaults are not specified since both keys are required.
-      features={
-          'image_raw': tf.FixedLenFeature([], tf.string),
-          'label': tf.FixedLenFeature([], tf.int64),
-      })
-
-  # Convert from a scalar string tensor (whose single string has
-  # length mnist.IMAGE_PIXELS) to a uint8 tensor with shape
-  # [mnist.IMAGE_PIXELS].
-  image = tf.decode_raw(features['image_raw'], tf.uint8)
-  image.set_shape([IMAGE_PIXELS])
-
-  # OPTIONAL: Could reshape into a 28x28 image and apply distortions
-  # here.  Since we are not applying any distortions in this
-  # example, and the next step expects the image to be flattened
-  # into a vector, we don't bother.
-
-  # Convert from [0, 255] -> [-0.5, 0.5] floats.
-  image = tf.cast(image, tf.float32) * (1. / 255) - 0.5
-
-  # Convert label from a scalar uint8 tensor to an int32 scalar.
+  batch = tf.train.batch([serialized_example], num_examples, capacity=num_examples)
+  features = tf.parse_example(
+    batch,
+    features={
+      'image_raw': tf.FixedLenFeature([], tf.string),
+      'label': tf.FixedLenFeature([], tf.int64)
+    }
+  )
+  image = tf.reshape(tf.decode_raw(features['image_raw'], tf.uint8), [-1, 48, 48, 3])
+  image = tf.cast(image, tf.float64)
   label = tf.cast(features['label'], tf.int32)
-
   return image, label
 
 
-def inputs(train, batch_size, num_epochs):
-  """Reads input data num_epochs times.
-  Args:
-    train: Selects between the training (True) and validation (False) data.
-    batch_size: Number of examples per returned batch.
-    num_epochs: Number of times to read the input data, or 0/None to
-       train forever.
-  Returns:
-    A tuple (images, labels), where:
-    * images is a float tensor with shape [batch_size, mnist.IMAGE_PIXELS]
-      in the range [-0.5, 0.5].
-    * labels is an int32 tensor with shape [batch_size] with the true label,
-      a number in the range [0, mnist.NUM_CLASSES).
-    Note that an tf.train.QueueRunner is added to the graph, which
-    must be run using e.g. tf.train.start_queue_runners().
-  """
-  if not num_epochs: num_epochs = None
-  filename = os.path.join(TRAIN_DIR,
-                          TRAIN_FILE if train else VALIDATION_FILE)
+def get_all_records(FILE, num_examples, sess):
+  filename_queue = tf.train.string_input_producer([FILE], num_epochs=1)
+  image, label = read_and_decode(filename_queue, num_examples)
+  init_op = [tf.global_variables_initializer(), tf.local_variables_initializer()]
+  sess.run(init_op)
+  coord = tf.train.Coordinator()
+  threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+  images, labels = sess.run([image, label])
+  coord.request_stop()
+  coord.join(threads)
 
-  with tf.name_scope('input'):
-    filename_queue = tf.train.string_input_producer(
-        [filename], num_epochs=num_epochs)
-
-    # Even when reading in multiple threads, share the filename
-    # queue.
-    image, label = read_and_decode(filename_queue)
-
-    # Shuffle the examples and collect them into batch_size batches.
-    # (Internally uses a RandomShuffleQueue.)
-    # We run this in two threads to avoid being a bottleneck.
-    images, sparse_labels = tf.train.shuffle_batch(
-        [image, label], batch_size=batch_size, num_threads=2,
-        capacity=1000 + 3 * batch_size,
-        # Ensures a minimum amount of shuffling of examples.
-        min_after_dequeue=1000)
-
-  return images, sparse_labels
+  return images, labels
 
 
 def euclidean_distance(vects):
@@ -181,13 +168,13 @@ def create_pairs(x, digit_indices):
     '''
     pairs = []
     labels = []
-    n = min([len(digit_indices[d]) for d in range(67)]) - 1
-    for d in range(67):
+    n = min([len(digit_indices[d]) for d in range(NUM_CLASSES)]) - 1
+    for d in range(NUM_CLASSES):
         for i in range(n):
             z1, z2 = digit_indices[d][i], digit_indices[d][i + 1]
             pairs += [[x[z1], x[z2]]]
-            inc = random.randrange(1, 67)
-            dn = (d + inc) % 67
+            inc = random.randrange(1, NUM_CLASSES - 1)
+            dn = (d + inc) % NUM_CLASSES
             z1, z2 = digit_indices[d][i], digit_indices[dn][i]
             pairs += [[x[z1], x[z2]]]
             labels += [1, 0]
@@ -199,18 +186,40 @@ def create_base_network(input_dim):
     '''
     with tf.device('/gpu:0'):
       seq = Sequential()
-      seq.add(Conv2D(filters = 32, kernel_size = (7, 7), input_shape=(input_dim,), activation = 'relu'))
+      seq.add(Conv2D(filters = 128, kernel_size = (7, 7), input_shape = input_dim, activation = 'relu'))
       seq.add(MaxPooling2D())
-      seq.add(Conv2D(filters = 64, kernel_size = (6, 6), input_shape=(input_dim,), activation = 'relu'))
+      seq.add(Conv2D(filters = 128, kernel_size = (4, 4), activation = 'relu'))
       seq.add(MaxPooling2D())
+      seq.add(Conv2D(filters = 256, kernel_size = (3, 3), activation = 'relu'))
+      seq.add(Flatten())
+      seq.add(Dense(2048, activation='relu'))
+      seq.add(Dropout(0.1))
       seq.add(Dense(128, activation='relu'))
-      # seq.add(Dense(128, input_shape=(input_dim,), activation='relu'))
-      # seq.add(Dropout(0.1))
-      # seq.add(Dense(128, activation='relu'))
-      # seq.add(Dropout(0.1))
-      # seq.add(Dense(128, activation='relu'))
 
     return seq
+
+
+def dump_network(network, name = 'network'):
+  # serialize model to JSON
+  network_json = network.to_json()
+  with open('%s.json' % name, 'w') as json_file:
+      json_file.write(network_json)
+  # serialize weights to HDF5
+  network.save_weights('%s.h5' % name)
+  print('Saved network to disk')
+
+
+def load_network(name = 'network'):
+  # load json and create model
+  json_file = open('%s.json' % name, 'r')
+  loaded_model_json = json_file.read()
+  json_file.close()
+  loaded_model = model_from_json(loaded_model_json)
+  # load weights into new model
+  loaded_model.load_weights('%s.h5' % name)
+  print('Loaded network from disk')
+
+  return loaded_model
 
 
 def compute_accuracy(predictions, labels):
@@ -219,54 +228,114 @@ def compute_accuracy(predictions, labels):
     return labels[predictions.ravel() < 0.5].mean()
 
 
-if __name__ == '__main__':
-  # images, labels = read_data(r'D:\Job\misis\svn\siam\testdata\rtsd-r1\test_proc', 
-  #   r'D:\Job\misis\svn\siam\testdata\rtsd-r1\gt_test.csv')
-  # convert_to(images, labels, r'D:\Job\misis\svn\siam\testdata\rtsd-r1\test.tfrecords')
+def train_siamese(name):
+  # images, labels = read_data(r'D:\Job\misis\svn\siam\testdata\rtsd-r1\test_proc',
+    # r'D:\Job\misis\svn\siam\testdata\rtsd-r1\gt_test.csv')
+  # convert_to(images, labels, r'D:\Job\misis\svn\siam\testdata\rtsd-r1\test_all.tfrecords')
   # the data, shuffled and split between train and test sets
-  num_epochs = 2
-  input_dim = IMAGE_PIXELS
-  batch_size = 32
-  num_classes = 67
-  (X_train, y_train) = inputs(train = True, batch_size = batch_size, num_epochs = num_epochs)
-  (X_test, y_test) = inputs(train = False, batch_size = batch_size, num_epochs = num_epochs)
+  # sys.exit()
+  # (X_train, y_train) = inputs(train = True, batch_size = batch_size, num_epochs = num_epochs)
+  # (X_test, y_test) = inputs(train = False, batch_size = batch_size, num_epochs = num_epochs)
+
+  X_train, y_train = get_all_records(r'/mnt/storage/aserikov/Job/nir/train_proc_all.tfrecords', num_train, sess)
+  # X_test, y_test = get_all_records(r'D:\Job\misis\svn\siam\testdata\rtsd-r1\test.tfrecords', num_test)
+
+  X_train /= 255
+  # X_test /= 255
 
   # create training+test positive and negative pairs
-  digit_indices = [np.where(y_train == i)[0] for i in range(num_classes)]
+  digit_indices = [np.where(y_train == i)[0] for i in range(NUM_CLASSES)]
   tr_pairs, tr_y = create_pairs(X_train, digit_indices)
 
-  digit_indices = [np.where(y_test == i)[0] for i in range(num_classes)]
-  te_pairs, te_y = create_pairs(X_test, digit_indices)
+  digit_indices = [np.where(y_train == i)[0] for i in range(NUM_CLASSES)]
+  te_pairs, te_y = create_pairs(X_train, digit_indices)
+
+  # digit_indices = [np.where(y_test == i)[0] for i in range(num_classes)]
+  # te_pairs, te_y = create_pairs(X_test, digit_indices)
 
   # network definition
-  base_network = create_base_network(input_dim)
+  with tf.device('/gpu:1'):
+    base_network = create_base_network(IMAGE_SHAPE)
 
-  input_a = Input(shape=(input_dim,))
-  input_b = Input(shape=(input_dim,))
+    input_a = Input(shape=IMAGE_SHAPE)
+    input_b = Input(shape=IMAGE_SHAPE)
 
-  # because we re-use the same instance `base_network`,
-  # the weights of the network
-  # will be shared across the two branches
-  processed_a = base_network(input_a)
-  processed_b = base_network(input_b)
+    # because we re-use the same instance `base_network`,
+    # the weights of the network
+    # will be shared across the two branches
+    processed_a = base_network(input_a)
+    processed_b = base_network(input_b)
 
-  distance = Lambda(euclidean_distance, output_shape=eucl_dist_output_shape)([processed_a, processed_b])
+    distance = Lambda(euclidean_distance, output_shape=eucl_dist_output_shape)([processed_a, processed_b])
 
-  model = Model(input=[input_a, input_b], output=distance)
+    model = Model(inputs=[input_a, input_b], outputs=distance)
 
-  # train
-  rms = RMSprop()
-  model.compile(loss=contrastive_loss, optimizer=rms)
-  model.fit([tr_pairs[:, 0], tr_pairs[:, 1]], tr_y,
-            validation_data=([te_pairs[:, 0], te_pairs[:, 1]], te_y),
-            batch_size=batch_size,
-            nb_epoch=num_epochs)
+    # train
+    opt = opts.Adam()
+    model.compile(loss=contrastive_loss, optimizer=opt)
+    # model.fit([tr_pairs[:, 0], tr_pairs[:, 1]], tr_y,
+    #           validation_data=([te_pairs[:, 0], te_pairs[:, 1]], te_y),
+    #           batch_size=batch_size,
+    #           nb_epoch=num_epochs)
 
-  # compute final accuracy on training and test sets
-  pred = model.predict([tr_pairs[:, 0], tr_pairs[:, 1]])
-  tr_acc = compute_accuracy(pred, tr_y)
-  pred = model.predict([te_pairs[:, 0], te_pairs[:, 1]])
-  te_acc = compute_accuracy(pred, te_y)
+    # model.fit([tr_pairs[:, 0], tr_pairs[:, 1]], tr_y,
+    #           batch_size=batch_size,
+    #           epochs=num_epochs)
 
-  print('* Accuracy on training set: %0.2f%%' % (100 * tr_acc))
-  print('* Accuracy on test set: %0.2f%%' % (100 * te_acc))
+    # compute final accuracy on training and test sets
+    pred = model.predict([tr_pairs[:, 0], tr_pairs[:, 1]])
+    tr_acc = compute_accuracy(pred, tr_y)
+    # pred = model.predict([te_pairs[:, 0], te_pairs[:, 1]])
+    # te_acc = compute_accuracy(pred, te_y)
+
+    print('* Accuracy on training set: %0.4f%%' % (100 * tr_acc))
+    # print('* Accuracy on test set: %0.2f%%' % (100 * te_acc))
+
+    dump_network(base_network, name)
+
+
+def check_quality(name):
+  X_train, y_train = get_all_records(r'/mnt/storage/aserikov/Job/nir/train_proc_all.tfrecords', num_train, sess)
+
+  X_train /= 255
+
+  digit_indices = [np.where(y_train == i)[0] for i in range(NUM_CLASSES)]
+  tr_pairs, tr_y = create_pairs(X_train, digit_indices)
+
+  with tf.device('/gpu:1'):
+    base_network = load_network(name)
+    input_a = Input(shape=IMAGE_SHAPE)
+    input_b = Input(shape=IMAGE_SHAPE)
+    processed_a = base_network(input_a)
+    processed_b = base_network(input_b)
+
+    distance = Lambda(euclidean_distance, output_shape=eucl_dist_output_shape)([processed_a, processed_b])
+
+    model = Model(inputs=[input_a, input_b], outputs=distance)
+
+    opt = opts.Adam()
+    model.compile(loss=contrastive_loss, optimizer=opt)
+
+    pred = model.predict([tr_pairs[:, 0], tr_pairs[:, 1]])
+    tr_acc = compute_accuracy(pred, tr_y)
+
+    print('* Accuracy on training set: %0.4f%%' % (100 * tr_acc))
+
+
+def output_predictions(name):
+  X_train, y_train = get_all_records(r'/mnt/storage/aserikov/Job/nir/train_proc_all.tfrecords', num_train, sess)
+
+  X_train /= 255
+
+  with tf.device('/gpu:1'):
+    model = load_network(name)
+    model.compile(loss = 'mse', optimizer = 'adam')
+
+    pred = model.predict(X_train)
+    
+    np.savetxt("predictions.csv", pred, fmt = '%.9f', delimiter = ',')
+    np.savetxt("labels.csv", y_train, fmt = '%d')
+
+if __name__ == '__main__':
+  # train_siamese('siam_base_relu')
+  output_predictions('siam_base_bak')
