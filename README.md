@@ -1,9 +1,22 @@
 # siam
 
 ## brief
-Tensorflow implementation of siamese image comparing net
 
-## about
-This page serves as the repo for school project, the goal is to develop an eco system for training siamese nets in Tensorflow, which are (hopefully ;) capable of claiming whether 2 images are of a similar class object or not.
+This repo contains suplementary code for my bachelor diploma @ NUST MISIS.
 
-As of 27.02 it's pretty much blank, but it's going to be filled rapidly. 
+## in particular
+
+`src` contains 3 files:
+- `data.py` - useful utilities for data preparation
+- `net.py` - base network + some ops
+- `siam.py` - training of siamese net
+
+## credits
+
+The siamese part is based on Keras siamese MNIST example:
+https://github.com/fchollet/keras/blob/master/examples/mnist_siamese_graph.py
+
+## future plans
+
+It's very likely (as I'm willing to grad the next month) that there will be frequent commits here.
+Feel free to use my workarounds. -btlk
