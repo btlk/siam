@@ -15,23 +15,23 @@ def create_base_network(input_dim):
     input_shape = input_dim,
     activation = 'relu'))
   seq.add(Conv2D(
-    filters = 64, 
+    filters = 32, 
     kernel_size = (3, 3), 
     input_shape = input_dim, 
     activation = 'relu'))
   seq.add(MaxPooling2D())
   seq.add(Conv2D(
-    filters = 64, 
+    filters = 32, 
     kernel_size = (3, 3), 
     activation = 'relu'))
   seq.add(MaxPooling2D())
   seq.add(Conv2D(
-    filters = 128, 
+    filters = 64, 
     kernel_size = (3, 3), 
     activation = 'relu'))
   seq.add(Flatten())
   seq.add(Dense(
-    4096, 
+    512, 
     activation='relu'))
   seq.add(Dropout(0.5))
   seq.add(Dense(
@@ -39,6 +39,22 @@ def create_base_network(input_dim):
     activation='relu'))
 
   return seq
+
+
+def attach_classifier(model, output_pins):
+  for l in model.layers:
+    l.trainable = False
+  # model.add(Dense(
+  #   16,
+  #   activation='relu',
+  #   name = 'dense_clas_1'
+  # ))
+  model.add(Dense(
+    output_pins,
+    activation='softmax',
+    name = 'dense_clas_2'
+  ))
+  return model
 
 
 def dump_network_separately(network, name = 'network'):
@@ -61,4 +77,4 @@ def load_network_separately(name = 'network'):
 
 
 __all__ = ['create_base_network', 'dump_network_separately', 
-  'load_network_separately']
+  'load_network_separately', 'attach_classifier']

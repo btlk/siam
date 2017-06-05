@@ -5,6 +5,23 @@ import shutil
 import random
 from tqdm import tqdm
 from argparse import ArgumentParser
+from keras.models import load_model
+import keras.backend as K
+import tensorflow as tf
+
+
+config = tf.ConfigProto()
+# config.gpu_options.per_process_gpu_memory_fraction = 0.4
+# config.gpu_options.allow_growth = True
+sess = tf.Session(config = config)
+K.set_session(sess)
+
+
+def FilterNegatives(crops, model):
+  crops = np.asarray(crops)
+  preds = model.predict(crops)
+  preds = np.argmax(preds, 1)
+  return crops[preds == 0]
 
 
 def SlidingCrop(im, size, count):
@@ -55,6 +72,10 @@ if __name__ == '__main__':
                       type = str,
                       help = 'Crop mode (rand|slid)',
                       default = 'rand')
+  parser.add_argument('--model-path', '-p',
+                      type = str,
+                      help = 'Path to classifiator',
+                      default = None)
   parser.add_argument('--output-dir', '-o',
                       type = str,
                       help = 'Path to output directory',
@@ -65,6 +86,7 @@ if __name__ == '__main__':
   crop_size = args.crop_size
   crop_count = args.crop_count
   crop_mode = args.crop_mode
+  model_path = args.model_path
 
   Crop = None
   if crop_mode == 'slid':
@@ -75,6 +97,12 @@ if __name__ == '__main__':
     raise RuntimeError(
       'Invalid crop mode \'%s\'' % crop_mode)
 
+  model = None
+  Filter = lambda x, _: x
+  if model_path and os.path.exists(model_path):
+    model = load_model(model_path)
+    Filter = FilterNegatives
+
   images_list = os.listdir(input_path)
   if os.path.exists(output_path):
     shutil.rmtree(output_path)
@@ -83,6 +111,7 @@ if __name__ == '__main__':
   for i in tqdm(images_list):
     im = cv2.imread(os.path.join(input_path, i))
     crops = Crop(im, crop_size, crop_count)
+    crops = Filter(crops, model)
     for j, c in enumerate(crops):
       cv2.imwrite(os.path.join(output_path, 
         '%s_%d.png' % (i.split('.')[0], j)), c)

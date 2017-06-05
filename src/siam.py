@@ -54,7 +54,8 @@ def create_pairs(x, digit_indices, num_classes):
       z1, z2 = digit_indices[d][inds[0]], \
         digit_indices[d][inds[1]]
       pairs += [[x[z1], x[z2]]]
-      inc = random.randrange(1, num_classes - 1)
+      inc = 1 if num_classes == 2 else \
+        random.randrange(1, num_classes - 1)
       dn = (d + inc) % num_classes
       indn = np.random.randint(0, 
         len(digit_indices[dn]))
@@ -82,10 +83,12 @@ def train_siamese(X_train, y_train,
   tr_pairs, tr_y = create_pairs(
     X_train, digit_indices, num_classes)
 
-  digit_indices = [np.where(y_test == i)[0] 
-    for i in range(num_classes)]
-  te_pairs, te_y = create_pairs(
-    X_test, digit_indices, num_classes)
+  te_pairs, te_y = None, None
+  if X_test and y_test:
+    digit_indices = [np.where(y_test == i)[0] 
+      for i in range(num_classes)]
+    te_pairs, te_y = create_pairs(
+      X_test, digit_indices, num_classes)
 
   # network definition
   with tf.device('/gpu:0'):
@@ -127,17 +130,35 @@ def train_siamese(X_train, y_train,
       )
       callbacks_list = [checkpoint]
 
-    history = model.fit(
-      x = [tr_pairs[:, 0], tr_pairs[:, 1]], 
-      y = tr_y,
-      callbacks = callbacks_list,
-      batch_size = batch_size,
-      validation_data = 
-        ([te_pairs[:, 0], te_pairs[:, 1]], te_y),
-      epochs = epochs
-    )
+    if te_pairs is not None:
+      history = model.fit(
+        x = [tr_pairs[:, 0], tr_pairs[:, 1]], 
+        y = tr_y,
+        callbacks = callbacks_list,
+        batch_size = batch_size,
+        validation_data = 
+          ([te_pairs[:, 0], te_pairs[:, 1]], te_y),
+        epochs = epochs
+      )
+      pred = model.predict(
+        [te_pairs[:, 0], te_pairs[:, 1]])
+      te_acc = compute_accuracy(pred, te_y)
 
-    pred = model.predict([tr_pairs[:, 0], tr_pairs[:, 1]])
+      print('* Accuracy on test set: %0.4f%%' 
+        % (100 * te_acc))
+
+    else:
+      history = model.fit(
+        x = [tr_pairs[:, 0], tr_pairs[:, 1]], 
+        y = tr_y,
+        callbacks = callbacks_list,
+        batch_size = batch_size,
+        validation_split = 0.15,
+        epochs = epochs
+      )
+
+    pred = model.predict(
+      [tr_pairs[:, 0], tr_pairs[:, 1]])
     tr_acc = compute_accuracy(pred, tr_y)
 
     print('* Accuracy on training set: %0.4f%%' 
@@ -157,8 +178,7 @@ if __name__ == '__main__':
                       required = True)
   parser.add_argument('--validation-data', '-v',
                       type = str,
-                      help = 'Path to validation data',
-                      required = True)
+                      help = 'Path to validation data')
   parser.add_argument('--output-path', '-o',
                       type = str,
                       help = 'Path to output dir',
@@ -173,8 +193,13 @@ if __name__ == '__main__':
   output_path = args.output_path
   epochs = args.epochs
   X_train, y_train = load_npz(train_path)
-  X_val, y_val = load_npz(val_path)
+
+  if val_path and os.path.exists(val_path):
+    X_val, y_val = load_npz(val_path)
+    X_val = X_val.astype(np.float32) / 255.0
+  else:
+    X_val, y_val = None, None
+
   X_train = X_train.astype(np.float32) / 255.0
-  X_val = X_val.astype(np.float32) / 255.0
   train_siamese(X_train, y_train, 
     X_val, y_val, output_path, epochs)
