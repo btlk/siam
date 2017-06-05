@@ -26,7 +26,8 @@ K.set_session(sess)
 
 def euclidean_distance(vects):
   x, y = vects
-  return K.sqrt(K.sum(K.square(x - y), axis = 1, keepdims = True))
+  return K.sqrt(K.sum(
+    K.square(x - y), axis = 1, keepdims = True))
 
 
 def eucl_dist_output_shape(shapes):
@@ -35,34 +36,34 @@ def eucl_dist_output_shape(shapes):
 
 
 def contrastive_loss(y_true, y_pred):
-  '''Contrastive loss from Hadsell-et-al.'06
-  http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
-  '''
   margin = 1
   return K.mean(y_true * K.square(y_pred) 
-    + (1 - y_true) * K.square(K.maximum(margin - y_pred, 0)))
+    + (1 - y_true) * K.square(
+      K.maximum(margin - y_pred, 0)))
 
 
 def create_pairs(x, digit_indices, num_classes):
-  '''Positive and negative pair creation.
-  Alternates between positive and negative pairs.
-  '''
   pairs = []
   labels = []
-  n = min([len(digit_indices[d]) for d in range(num_classes)]) - 1
+  n = min([len(digit_indices[d]) 
+    for d in range(num_classes)]) - 1
   for d in range(num_classes):
     for i in range(n):
-      inds = np.random.randint(0, len(digit_indices[d]), 2)
-      z1, z2 = digit_indices[d][inds[0]], digit_indices[d][inds[1]]
+      inds = np.random.randint(0, 
+        len(digit_indices[d]), 2)
+      z1, z2 = digit_indices[d][inds[0]], \
+        digit_indices[d][inds[1]]
       pairs += [[x[z1], x[z2]]]
       inc = random.randrange(1, num_classes - 1)
       dn = (d + inc) % num_classes
-      indn = np.random.randint(0, len(digit_indices[dn]))
+      indn = np.random.randint(0, 
+        len(digit_indices[dn]))
       if np.random.rand() < 0.5:
         indi = inds[0]
       else:
         indi = inds[1]
-      z1, z2 = digit_indices[d][indi], digit_indices[dn][indn]
+      z1, z2 = digit_indices[d][indi], \
+        digit_indices[dn][indn]
       pairs += [[x[z1], x[z2]]]
       labels += [1, 0]
   return np.array(pairs), np.array(labels)
@@ -72,14 +73,19 @@ def compute_accuracy(predictions, labels):
   return labels[predictions.ravel() < 0.5].mean()
 
 
-def train_siamese(X_train, y_train, X_test, y_test, output_path, epochs):
+def train_siamese(X_train, y_train, 
+  X_test, y_test, output_path, epochs):
   image_shape = X_train[0].shape
   num_classes = y_train.max() + 1
-  digit_indices = [np.where(y_train == i)[0] for i in range(num_classes)]
-  tr_pairs, tr_y = create_pairs(X_train, digit_indices, num_classes)
+  digit_indices = [np.where(y_train == i)[0] 
+    for i in range(num_classes)]
+  tr_pairs, tr_y = create_pairs(
+    X_train, digit_indices, num_classes)
 
-  digit_indices = [np.where(y_test == i)[0] for i in range(num_classes)]
-  te_pairs, te_y = create_pairs(X_test, digit_indices, num_classes)
+  digit_indices = [np.where(y_test == i)[0] 
+    for i in range(num_classes)]
+  te_pairs, te_y = create_pairs(
+    X_test, digit_indices, num_classes)
 
   # network definition
   with tf.device('/gpu:0'):
@@ -110,7 +116,8 @@ def train_siamese(X_train, y_train, X_test, y_test, output_path, epochs):
       if os.path.exists(output_path):
         shutil.rmtree(output_path)
       os.makedirs(output_path)
-      filepath = os.path.join(output_path, '{epoch:02d}-{loss:.2f}-{val_loss:.2f}.hdf5')
+      filepath = os.path.join(output_path, 
+        '{epoch:02d}-{loss:.2f}-{val_loss:.2f}.hdf5')
       checkpoint = ModelCheckpoint(
         filepath, 
         monitor = 'val_loss', 
@@ -125,18 +132,21 @@ def train_siamese(X_train, y_train, X_test, y_test, output_path, epochs):
       y = tr_y,
       callbacks = callbacks_list,
       batch_size = batch_size,
-      validation_data = ([te_pairs[:, 0], te_pairs[:, 1]], te_y),
+      validation_data = 
+        ([te_pairs[:, 0], te_pairs[:, 1]], te_y),
       epochs = epochs
     )
 
     pred = model.predict([tr_pairs[:, 0], tr_pairs[:, 1]])
     tr_acc = compute_accuracy(pred, tr_y)
 
-    print('* Accuracy on training set: %0.4f%%' % (100 * tr_acc))
+    print('* Accuracy on training set: %0.4f%%' 
+      % (100 * tr_acc))
 
 
-__all__ = ['euclidean_distance', 'eucl_dist_output_shape', 'contrastive_loss', 
-  'create_pairs', 'compute_accuracy', 'train_siamese']
+__all__ = ['euclidean_distance', 'eucl_dist_output_shape', 
+  'contrastive_loss', 'create_pairs', 'compute_accuracy', 
+  'train_siamese']
 
 
 if __name__ == '__main__':
@@ -166,4 +176,5 @@ if __name__ == '__main__':
   X_val, y_val = load_npz(val_path)
   X_train = X_train.astype(np.float32) / 255.0
   X_val = X_val.astype(np.float32) / 255.0
-  train_siamese(X_train, y_train, X_val, y_val, output_path, epochs)
+  train_siamese(X_train, y_train, 
+    X_val, y_val, output_path, epochs)

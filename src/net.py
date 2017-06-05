@@ -1,6 +1,7 @@
 import numpy as np
 from keras.models import Sequential, model_from_json
-from keras.layers import Dense, Dropout, Input, Conv2D, MaxPooling2D, Flatten
+from keras.layers import (Dense, Dropout, Input, 
+  Conv2D, MaxPooling2D, Flatten)
 import tensorflow as tf
 import os
 import json

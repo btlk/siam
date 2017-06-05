@@ -21,10 +21,12 @@ sess = tf.Session(config = config)
 K.set_session(sess)
 
 
-def visualize_data(data, labels, model_path):
+def visualize_data(
+  data, labels, model_path, max_iter = 1000):
   model = load_model(model_path).layers[2]
-  results = model.predict(data, 96, verbose = 1).astype(np.float64)
-  reduced_data = tsne(results)
+  results = model.predict(
+    data, 96, verbose = 1).astype(np.float64)
+  reduced_data = tsne(results, max_iter = max_iter)
   num_classes = labels.max() + 1
   for i in range(num_classes):
     plot_data = reduced_data[labels == i]
@@ -36,6 +38,10 @@ def visualize_data(data, labels, model_path):
     )
   plt.show()
 
+
+__all__ = ['visualize_data']
+
+
 if __name__ == '__main__':
   parser = ArgumentParser(description = 'Data visualizer')
   parser.add_argument('--data-path', '-d',
@@ -46,11 +52,13 @@ if __name__ == '__main__':
                       type = str,
                       help = 'Path to trained model',
                       required = True)
+  parser.add_argument('--tsne-iter', '-i',
+                      type = int,
+                      help = 'Max number of tSNE iterations',
+                      default = 1000)
   args = parser.parse_args()
   data_path = args.data_path
   model_path = args.model_path
+  max_iter = args.tsne_iter
   data, labels = load_npz(data_path)
-  visualize_data(data, labels, model_path)
-
-
-__all__ = ['visualize_data']
+  visualize_data(data, labels, model_path, max_iter)
