@@ -10,9 +10,9 @@ This repo contains suplementary code for my bachelor diploma @ NUST MISIS.
 - `data.py` - useful utilities for data preparation
 - `net.py` - network ops
 - `siam.py` - training siamese net
-- 'classifier.py' - training classifier on top of siamese net
+- `classifier.py` - training classifier on top of siamese net
 - `visual.py` - visualizing data in prediction space using bhtsne
-- 'crop.py' - app for cropping regions from arbitrary images
+- `crop.py` - app for cropping regions from arbitrary images
 
 ## credits
 
