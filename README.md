@@ -1,8 +1,10 @@
 # siam
 
+As of 11/06, deadline is coming, so I let myself update the readme later.
+
 ## brief
 
-This repo contains suplementary code for my bachelor diploma @ NUST MISIS.
+This repo contains suplementary code for my bachelor diploma @ NUST MISIS.  
 
 ## in particular
 
