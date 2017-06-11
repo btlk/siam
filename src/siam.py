@@ -5,21 +5,20 @@ from keras.models import Model
 from keras.layers import Input, Lambda
 from keras.utils import plot_model
 from keras import optimizers as opts
-from keras.callbacks import ModelCheckpoint
 from keras import backend as K
 import tensorflow as tf
 import os, shutil
 
 from data import load_npz
-from net import create_base_network
+from net import create_base_network, SeparateSaveCallback
 
 
 batch_size = 128
 
 
 config = tf.ConfigProto()
-# config.gpu_options.per_process_gpu_memory_fraction = 0.4
-# config.gpu_options.allow_growth = True
+config.gpu_options.per_process_gpu_memory_fraction = 0.6
+config.gpu_options.allow_growth = True
 sess = tf.Session(config = config)
 K.set_session(sess)
 
@@ -42,7 +41,7 @@ def contrastive_loss(y_true, y_pred):
       K.maximum(margin - y_pred, 0)))
 
 
-def create_pairs(x, digit_indices, num_classes):
+def create_pairs_rnd(x, digit_indices, num_classes):
   pairs = []
   labels = []
   n = min([len(digit_indices[d]) 
@@ -70,6 +69,27 @@ def create_pairs(x, digit_indices, num_classes):
   return np.array(pairs), np.array(labels)
 
 
+def create_pairs_nb(x, digit_indices, num_classes):
+  pairs = []
+  labels = []
+  n = min([len(digit_indices[d]) 
+    for d in range(num_classes)]) - 1
+  for d in range(num_classes):
+    for i in range(n - 1):
+      z1, z2 = digit_indices[d][i], \
+        digit_indices[d][i + 1]
+      pairs += [[x[z1], x[z2]]]
+      inc = 1 if num_classes == 2 else \
+        random.randrange(1, num_classes - 1)
+      dn = (d + inc) % num_classes
+      z1, z2 = digit_indices[d][i], \
+        digit_indices[dn][i + 1]
+      pairs += [[x[z1], x[z2]]]
+      labels += [1, 0]
+  return np.array(pairs), np.array(labels)
+
+
+
 def compute_accuracy(predictions, labels):
   return labels[predictions.ravel() < 0.5].mean()
 
@@ -78,17 +98,6 @@ def train_siamese(X_train, y_train,
   X_test, y_test, output_path, epochs):
   image_shape = X_train[0].shape
   num_classes = y_train.max() + 1
-  digit_indices = [np.where(y_train == i)[0] 
-    for i in range(num_classes)]
-  tr_pairs, tr_y = create_pairs(
-    X_train, digit_indices, num_classes)
-
-  te_pairs, te_y = None, None
-  if X_test and y_test:
-    digit_indices = [np.where(y_test == i)[0] 
-      for i in range(num_classes)]
-    te_pairs, te_y = create_pairs(
-      X_test, digit_indices, num_classes)
 
   # network definition
   with tf.device('/gpu:0'):
@@ -108,7 +117,7 @@ def train_siamese(X_train, y_train,
       outputs = distance
     )
 
-    opt = opts.Adam()
+    opt = opts.RMSprop(epsilon = 1e-4, decay = 1e-6)
     model.compile(
       loss = contrastive_loss, 
       optimizer = opt
@@ -119,50 +128,50 @@ def train_siamese(X_train, y_train,
       if os.path.exists(output_path):
         shutil.rmtree(output_path)
       os.makedirs(output_path)
-      filepath = os.path.join(output_path, 
-        '{epoch:02d}-{loss:.2f}-{val_loss:.2f}.hdf5')
-      checkpoint = ModelCheckpoint(
-        filepath, 
-        monitor = 'val_loss', 
-        verbose = 0, 
-        save_best_only = True, 
-        mode = 'min'
-      )
+      file_fmt = '{epoch:02d}-{loss:.4f}-{val_loss:.4f}.hdf5'
+      checkpoint = SeparateSaveCallback(
+        output_path, file_fmt)
       callbacks_list = [checkpoint]
 
-    if te_pairs is not None:
-      history = model.fit(
-        x = [tr_pairs[:, 0], tr_pairs[:, 1]], 
-        y = tr_y,
-        callbacks = callbacks_list,
-        batch_size = batch_size,
-        validation_data = 
-          ([te_pairs[:, 0], te_pairs[:, 1]], te_y),
-        epochs = epochs
-      )
-      pred = model.predict(
-        [te_pairs[:, 0], te_pairs[:, 1]])
-      te_acc = compute_accuracy(pred, te_y)
+    epochs_count = 1
+    history = []
+    for e in range(0, epochs, epochs_count):
+      with tf.device('/cpu:0'):
+        digit_indices = [np.where(y_train == i)[0] 
+          for i in range(num_classes)]
+        tr_pairs, tr_y = create_pairs_rnd(
+          X_train, digit_indices, num_classes)
 
-      print('* Accuracy on test set: %0.4f%%' 
-        % (100 * te_acc))
+        te_pairs, te_y = None, None
+        if X_test is not None and y_test is not None:
+          digit_indices = [np.where(y_test == i)[0] 
+            for i in range(num_classes)]
+          te_pairs, te_y = create_pairs_rnd(
+            X_test, digit_indices, num_classes)
 
-    else:
-      history = model.fit(
-        x = [tr_pairs[:, 0], tr_pairs[:, 1]], 
-        y = tr_y,
-        callbacks = callbacks_list,
-        batch_size = batch_size,
-        validation_split = 0.15,
-        epochs = epochs
-      )
 
-    pred = model.predict(
-      [tr_pairs[:, 0], tr_pairs[:, 1]])
-    tr_acc = compute_accuracy(pred, tr_y)
+      if te_pairs is not None:
+        history.append(model.fit(
+          x = [tr_pairs[:, 0], tr_pairs[:, 1]], 
+          y = tr_y,
+          callbacks = callbacks_list,
+          batch_size = batch_size,
+          validation_data = 
+            ([te_pairs[:, 0], te_pairs[:, 1]], te_y),
+          epochs = epochs_count
+        ))
 
-    print('* Accuracy on training set: %0.4f%%' 
-      % (100 * tr_acc))
+      else:
+        history.append(model.fit(
+          x = [tr_pairs[:, 0], tr_pairs[:, 1]], 
+          y = tr_y,
+          callbacks = callbacks_list,
+          batch_size = batch_size,
+          validation_split = 0.15,
+          epochs = epochs_count
+        ))
+
+    return history
 
 
 __all__ = ['euclidean_distance', 'eucl_dist_output_shape', 
@@ -194,6 +203,9 @@ if __name__ == '__main__':
   epochs = args.epochs
   X_train, y_train = load_npz(train_path)
 
+  print (X_train.shape, y_train.shape)
+  print (y_train[:10])
+
   if val_path and os.path.exists(val_path):
     X_val, y_val = load_npz(val_path)
     X_val = X_val.astype(np.float32) / 255.0
@@ -201,5 +213,13 @@ if __name__ == '__main__':
     X_val, y_val = None, None
 
   X_train = X_train.astype(np.float32) / 255.0
-  train_siamese(X_train, y_train, 
+  history = train_siamese(X_train, y_train, 
     X_val, y_val, output_path, epochs)
+
+  with open('history_loss.txt', 'w') as hstr:
+    for h in history:
+      hstr.write(str(h.history['loss']))
+
+  with open('history_valloss.txt', 'w') as hstr:
+    for h in history:
+      hstr.write(str(h.history['val_loss']))

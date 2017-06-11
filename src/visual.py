@@ -8,6 +8,7 @@ from bhtsne import tsne
 
 from data import *
 from siam import contrastive_loss
+from net import create_base_network
 
 # workaround
 from keras import losses
@@ -23,7 +24,8 @@ K.set_session(sess)
 
 def visualize_data(
   data, labels, model_path, max_iter = 1000):
-  model = load_model(model_path).layers[2]
+  model = create_base_network(data.shape[1:])
+  model.load_weights(model_path)
   results = model.predict(
     data, 96, verbose = 1).astype(np.float64)
   reduced_data = tsne(results, max_iter = max_iter)

@@ -45,9 +45,10 @@ def SlidingCrop(im, size, count):
 def RandomCrop(im, size, count):
   results = []
   h, w = im.shape[:2]
+  h_step = h / 3
   for i in range(count):
     x_ = np.random.randint(0, w - size)
-    y_ = np.random.randint(0, h - size)
+    y_ = np.random.randint(h_step, h - size)
     results.append(im[y_:y_ + size, x_:x_ + size])
   return results
 
